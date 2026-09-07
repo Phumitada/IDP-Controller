@@ -19,7 +19,12 @@ package controller
 import (
 	"context"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -29,9 +34,17 @@ import (
 
 // ApplicationReconciler reconciles a Application object
 type ApplicationReconciler struct {
-	client.Client
+	client.Client // Doesnt have name only a type is declared
 	Scheme *runtime.Scheme
 }
+
+// type Client interface {
+//     Get(ctx, key, obj) error
+//     Create(ctx, obj) error
+//     Update(ctx, obj) error
+//     Delete(ctx, obj) error
+//     List(ctx, list) error
+// } List of client interface method, to HTTP requeset to apiserver
 
 // +kubebuilder:rbac:groups=paas.internal,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=paas.internal,resources=applications/status,verbs=get;update;patch
@@ -49,7 +62,86 @@ type ApplicationReconciler struct {
 func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	var app paasv1.Application
+	err := r.Get(ctx, req.NamespacedName, &app)
+	if apierrors.IsNotFound(err) {
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	labels := map[string]string{
+    "app": app.Name,
+	}
+
+	envVars := []corev1.EnvVar{}
+	for key, value := range app.Spec.EnvVars {
+		envVars = append(envVars, corev1.EnvVar{Name: key, Value: value})
+	}
+
+	secretName := "ghcr-secret"
+	if app.Spec.ImagePullSecret != nil {
+		secretName = *app.Spec.ImagePullSecret
+	}
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: app.Name,
+			Namespace: app.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(&app, paasv1.GroupVersion.WithKind("Application")),
+			},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Replicas: ptr.To(int32(1)),
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "api",
+							Image: app.Spec.Image,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: app.Spec.Port,
+								},
+							},
+							Env: envVars,
+						},
+					},
+					ImagePullSecrets: []corev1.LocalObjectReference{
+						{
+							Name: secretName,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	var found appsv1.Deployment
+	founded := r.Get(ctx,client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace},&found)
+	if apierrors.IsNotFound(founded) {
+		err := r.Create(ctx,deployment)
+		if err != nil{
+			return ctrl.Result{},err
+		}
+		return ctrl.Result{}, nil
+	}
+	if founded == nil {
+		deployment.ResourceVersion = found.ResourceVersion
+		if err := r.Update(ctx, deployment); err != nil {
+			return ctrl.Result{}, err
+		}
+    	return ctrl.Result{}, nil
+	}
 
 	return ctrl.Result{}, nil
 }

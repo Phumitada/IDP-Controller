@@ -1,0 +1,8 @@
+apiVersion: paas.internal/v1
+kind: Application
+metadata:
+  name: order-system-api
+spec:
+  image: ghcr.io/phumitada/order-system-api:a0ae0b9
+  port: 3000
+  imagePullSecret: ghcr-secret

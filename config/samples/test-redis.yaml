@@ -1,0 +1,7 @@
+apiVersion: paas.internal/v1
+kind: Database
+metadata:
+  name: redis-test
+spec:
+  engine: redis
+  storage: 2Gi

@@ -8,6 +8,7 @@ rules:
   - paas.internal
   resources:
   - applications
+  - databases
   verbs:
   - create
   - delete
@@ -20,12 +21,14 @@ rules:
   - paas.internal
   resources:
   - applications/finalizers
+  - databases/finalizers
   verbs:
   - update
 - apiGroups:
   - paas.internal
   resources:
   - applications/status
+  - databases/status
   verbs:
   - get
   - patch

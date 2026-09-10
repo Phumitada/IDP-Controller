@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: applications.paas.internal
+  name: databases.paas.internal
 spec:
   group: paas.internal
   names:
-    kind: Application
-    listKind: ApplicationList
-    plural: applications
-    singular: application
+    kind: Database
+    listKind: DatabaseList
+    plural: databases
+    singular: database
   scope: Namespaced
   versions:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: Application is the Schema for the applications API
+        description: Database is the Schema for the databases API
         properties:
           apiVersion:
             description: |-
@@ -37,33 +37,31 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of Application
+            description: spec defines the desired state of Database
             properties:
-              databaseRef:
+              engine:
+                enum:
+                - postgres
+                - redis
                 type: string
-              domain:
+              name:
                 type: string
-              envVars:
-                additionalProperties:
-                  type: string
-                type: object
-              image:
-                type: string
-              imagePullSecret:
-                type: string
-              port:
-                format: int32
-                type: integer
+              storage:
+                anyOf:
+                - type: integer
+                - type: string
+                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                x-kubernetes-int-or-string: true
             required:
-            - image
-            - port
+            - engine
+            - storage
             type: object
           status:
-            description: status defines the observed state of Application
+            description: status defines the observed state of Database
             properties:
               conditions:
                 description: |-
-                  conditions represent the current state of the Application resource.
+                  conditions represent the current state of the Database resource.
                   Each condition has a unique type and reflects the status of a specific aspect of the resource.
 
                   Standard condition types include:

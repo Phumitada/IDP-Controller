@@ -35,7 +35,7 @@ import (
 // ApplicationReconciler reconciles a Application object
 type ApplicationReconciler struct {
 	client.Client // Doesnt have name only a type is declared
-	Scheme *runtime.Scheme
+	Scheme        *runtime.Scheme
 }
 
 // type Client interface {
@@ -73,7 +73,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	labels := map[string]string{
-    "app": app.Name,
+		"app": app.Name,
 	}
 
 	envVars := []corev1.EnvVar{}
@@ -88,7 +88,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: app.Name,
+			Name:      app.Name,
 			Namespace: app.Namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(&app, paasv1.GroupVersion.WithKind("Application")),
@@ -106,7 +106,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name: "api",
+							Name:  "api",
 							Image: app.Spec.Image,
 							Ports: []corev1.ContainerPort{
 								{
@@ -127,11 +127,11 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	var found appsv1.Deployment
-	founded := r.Get(ctx,client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace},&found)
+	founded := r.Get(ctx, client.ObjectKey{Name: deployment.Name, Namespace: deployment.Namespace}, &found)
 	if apierrors.IsNotFound(founded) {
-		err := r.Create(ctx,deployment)
-		if err != nil{
-			return ctrl.Result{},err
+		err := r.Create(ctx, deployment)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
@@ -140,7 +140,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Update(ctx, deployment); err != nil {
 			return ctrl.Result{}, err
 		}
-    	return ctrl.Result{}, nil
+		return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil

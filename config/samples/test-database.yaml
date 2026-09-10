@@ -1,0 +1,7 @@
+apiVersion: paas.internal/v1
+kind: Database
+metadata:
+  name: postgres-test
+spec:
+  engine: postgres
+  storage: 2Gi

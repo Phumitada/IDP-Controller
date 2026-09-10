@@ -47,7 +47,7 @@ type ApplicationSpec struct {
 	ImagePullSecret *string `json:"imagePullSecret,omitempty"`
 
 	// +optional
-	DatabaseRef *string `json:"databaseRef,omitempty"`
+	DatabaseRef []string `json:"databaseRef,omitempty"`
 }
 
 // ApplicationStatus defines the observed state of Application.

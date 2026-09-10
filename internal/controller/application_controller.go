@@ -18,12 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -76,6 +78,35 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		"app": app.Name,
 	}
 
+	var envFrom []corev1.EnvFromSource
+
+	if len(app.Spec.DatabaseRef) != 0 {
+		// Check for what Database is referenced
+		var secretRef []string
+		// secretRef := fmt.Sprintf("%s-credentials", *app.Spec.DatabaseRef)
+		for _, value := range app.Spec.DatabaseRef {
+			valueTransformer := fmt.Sprintf("%s-credentials", value)
+			secretRef = append(secretRef, valueTransformer)
+		}
+		secretObj := &corev1.Secret{}
+		for _, value := range secretRef {
+			err := r.Get(ctx, types.NamespacedName{Name: value, Namespace: app.Namespace}, secretObj)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+			if err == nil {
+				envFromSource := &corev1.EnvFromSource{
+					SecretRef: &corev1.SecretEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: value,
+						},
+					},
+				}
+				envFrom = append(envFrom, *envFromSource)
+			}
+		}
+	}
+
 	envVars := []corev1.EnvVar{}
 	for key, value := range app.Spec.EnvVars {
 		envVars = append(envVars, corev1.EnvVar{Name: key, Value: value})
@@ -113,7 +144,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 									ContainerPort: app.Spec.Port,
 								},
 							},
-							Env: envVars,
+							Env:     envVars,
+							EnvFrom: envFrom,
 						},
 					},
 					ImagePullSecrets: []corev1.LocalObjectReference{
@@ -134,6 +166,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+	if founded != nil {
+		return ctrl.Result{}, founded
 	}
 	if founded == nil {
 		deployment.ResourceVersion = found.ResourceVersion

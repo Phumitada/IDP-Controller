@@ -3,6 +3,9 @@ kind: Application
 metadata:
   name: order-system-api
 spec:
-  image: ghcr.io/phumitada/order-system-api:a0ae0b9
+  image: ghcr.io/phumitada/order-system-api:b2caff3
   port: 3000
   imagePullSecret: ghcr-secret
+  databaseRef:
+    - postgres-test
+    - redis-test

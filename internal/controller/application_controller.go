@@ -26,6 +26,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,9 +50,33 @@ type ApplicationReconciler struct {
 //     List(ctx, list) error
 // } List of client interface method, to HTTP requeset to apiserver
 
+func (r *ApplicationReconciler) findApplicationsForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
+	var reconcileList []reconcile.Request
+	var appList paasv1.ApplicationList
+	r.List(ctx,&appList)
+	for _,value := range appList.Items{
+		if len(value.Spec.DatabaseRef) != 0{
+			for _,valueRef := range  value.Spec.DatabaseRef{
+				valueRefTrans := fmt.Sprintf("%s-credentials", valueRef)
+				if valueRefTrans == secret.GetName() && value.Namespace == secret.GetNamespace(){
+					req := reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      value.Name,
+							Namespace: value.Namespace,
+						},
+					}
+					reconcileList = append(reconcileList, req)
+				}
+			}
+		}
+	}
+	return reconcileList
+}
+
 // +kubebuilder:rbac:groups=paas.internal,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=paas.internal,resources=applications/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=paas.internal,resources=applications/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch (make sure cluster has admission to do reconcile for secret)
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -185,6 +211,10 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&paasv1.Application{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findApplicationsForSecret),
+		).
 		Named("application").
 		Complete(r)
 }

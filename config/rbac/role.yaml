@@ -13,7 +13,6 @@ rules:
   - get
   - list
   - watch
-  - watch (make sure cluster has admission to do reconcile for secret)
 - apiGroups:
   - ""
   resources:
@@ -28,6 +27,16 @@ rules:
   - apps
   resources:
   - statefulsets
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
   verbs:
   - create
   - get

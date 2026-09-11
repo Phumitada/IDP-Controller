@@ -22,16 +22,17 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	paasv1 "github.com/Phumitada/IDP-Controller/api/v1"
 )
@@ -53,12 +54,12 @@ type ApplicationReconciler struct {
 func (r *ApplicationReconciler) findApplicationsForSecret(ctx context.Context, secret client.Object) []reconcile.Request {
 	var reconcileList []reconcile.Request
 	var appList paasv1.ApplicationList
-	r.List(ctx,&appList)
-	for _,value := range appList.Items{
-		if len(value.Spec.DatabaseRef) != 0{
-			for _,valueRef := range  value.Spec.DatabaseRef{
+	r.List(ctx, &appList)
+	for _, value := range appList.Items {
+		if len(value.Spec.DatabaseRef) != 0 {
+			for _, valueRef := range value.Spec.DatabaseRef {
 				valueRefTrans := fmt.Sprintf("%s-credentials", valueRef)
-				if valueRefTrans == secret.GetName() && value.Namespace == secret.GetNamespace(){
+				if valueRefTrans == secret.GetName() && value.Namespace == secret.GetNamespace() {
 					req := reconcile.Request{
 						NamespacedName: types.NamespacedName{
 							Name:      value.Name,
@@ -73,10 +74,128 @@ func (r *ApplicationReconciler) findApplicationsForSecret(ctx context.Context, s
 	return reconcileList
 }
 
+func (r *ApplicationReconciler) reconcileService(ctx context.Context, app *paasv1.Application) error {
+	containerPort := app.Spec.Port
+	labels := map[string]string{
+		"app": app.Name,
+	}
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      app.Name,
+			Namespace: app.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(app, paasv1.GroupVersion.WithKind("Application")),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labels,
+			Ports: []corev1.ServicePort{
+				{Port: containerPort},
+			},
+			Type: corev1.ServiceTypeClusterIP,
+		},
+	}
+	var found corev1.Service
+	founded := r.Get(ctx, client.ObjectKey{Name: service.Name, Namespace: service.Namespace}, &found)
+	if apierrors.IsNotFound(founded) {
+		err := r.Create(ctx, service)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if founded != nil {
+		return founded
+	}
+	if founded == nil {
+		service.ResourceVersion = found.ResourceVersion
+		if err := r.Update(ctx, service); err != nil {
+			return err
+		}
+		return nil
+	}
+	return nil
+}
+
+func (r *ApplicationReconciler) reconcileIngress(ctx context.Context, app *paasv1.Application) error {
+	domainName := app.Spec.Domain
+	if domainName == nil {
+		return nil
+	}
+	pathType := networkingv1.PathTypePrefix
+	ingress := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      app.Name,
+			Namespace: app.Namespace,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(app, paasv1.GroupVersion.WithKind("Application")),
+			},
+			Annotations: map[string]string{
+				"cert-manager.io/cluster-issuer": "letsencrypt-prod",
+			},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: ptr.To("nginx"),
+			TLS: []networkingv1.IngressTLS{
+				{
+					Hosts:      []string{*app.Spec.Domain},
+					SecretName: fmt.Sprintf("%s-tls", app.Name),
+				},
+			},
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: *app.Spec.Domain,
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathType,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+											Name: app.Name,
+											Port: networkingv1.ServiceBackendPort{
+												Number: app.Spec.Port,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	var found networkingv1.Ingress
+	founded := r.Get(ctx, client.ObjectKey{Name: ingress.Name, Namespace: ingress.Namespace}, &found)
+	if apierrors.IsNotFound(founded) {
+		err := r.Create(ctx, ingress)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	if founded != nil {
+		return founded
+	}
+	if founded == nil {
+		ingress.ResourceVersion = found.ResourceVersion
+		if err := r.Update(ctx, ingress); err != nil {
+			return err
+		}
+		return nil
+	}
+	return nil
+}
+
 // +kubebuilder:rbac:groups=paas.internal,resources=applications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=paas.internal,resources=applications/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=paas.internal,resources=applications/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch (make sure cluster has admission to do reconcile for secret)
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -191,9 +310,8 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
 	}
-	if founded != nil {
+	if founded != nil && !apierrors.IsNotFound(founded) {
 		return ctrl.Result{}, founded
 	}
 	if founded == nil {
@@ -201,7 +319,16 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Update(ctx, deployment); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, nil
+	}
+
+	err = r.reconcileService(ctx, &app)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	err = r.reconcileIngress(ctx, &app)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil

@@ -196,7 +196,7 @@ func (r *ApplicationReconciler) reconcileIngress(ctx context.Context, app *paasv
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update
-
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
 // TODO(user): Modify the Reconcile function to compare the state specified by
@@ -251,10 +251,28 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			}
 		}
 	}
-
-	envVars := []corev1.EnvVar{}
-	for key, value := range app.Spec.EnvVars {
-		envVars = append(envVars, corev1.EnvVar{Name: key, Value: value})
+	if len(app.Spec.EnvSecretRefs) != 0 {
+		var envSecretRefs []string
+		for _,value := range app.Spec.EnvSecretRefs {
+			envSecretRefs = append(envSecretRefs,value)
+		}
+		envSecretObj := &corev1.Secret{}
+		for _,value := range envSecretRefs{
+			err := r.Get(ctx,types.NamespacedName{Name: value,Namespace: app.Namespace},envSecretObj)
+			if err != nil && !apierrors.IsNotFound(err){
+				return ctrl.Result{},err
+			}
+			if err == nil {
+				envFromSource := &corev1.EnvFromSource{
+					SecretRef: &corev1.SecretEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: value,
+						},
+					},
+				}
+				envFrom = append(envFrom, *envFromSource)
+			}
+		}
 	}
 
 	secretName := "ghcr-secret"
@@ -289,7 +307,6 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 									ContainerPort: app.Spec.Port,
 								},
 							},
-							Env:     envVars,
 							EnvFrom: envFrom,
 						},
 					},

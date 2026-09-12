@@ -38,9 +38,6 @@ type ApplicationSpec struct {
 	Port int32 `json:"port"`
 
 	// +optional
-	EnvVars map[string]string `json:"envVars,omitempty"`
-
-	// +optional
 	Domain *string `json:"domain,omitempty"`
 
 	// +optional
@@ -48,6 +45,9 @@ type ApplicationSpec struct {
 
 	// +optional
 	DatabaseRef []string `json:"databaseRef,omitempty"`
+
+	// +optional
+	EnvSecretRefs []string `json:"envSecretRefs,omitempty"`
 }
 
 // ApplicationStatus defines the observed state of Application.

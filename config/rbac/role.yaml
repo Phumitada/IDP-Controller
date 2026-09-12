@@ -34,19 +34,8 @@ rules:
   - update
   - watch
 - apiGroups:
-  - networking.k8s.io
-  resources:
-  - ingresses
-  verbs:
-  - create
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
   - paas.internal
   resources:
-  - applications
   - databases
   verbs:
   - create
@@ -59,14 +48,12 @@ rules:
 - apiGroups:
   - paas.internal
   resources:
-  - applications/finalizers
   - databases/finalizers
   verbs:
   - update
 - apiGroups:
   - paas.internal
   resources:
-  - applications/status
   - databases/status
   verbs:
   - get

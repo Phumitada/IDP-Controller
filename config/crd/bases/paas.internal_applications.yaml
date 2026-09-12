@@ -45,10 +45,10 @@ spec:
                 type: array
               domain:
                 type: string
-              envVars:
-                additionalProperties:
+              envSecretRefs:
+                items:
                   type: string
-                type: object
+                type: array
               image:
                 type: string
               imagePullSecret:

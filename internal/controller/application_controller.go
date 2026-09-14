@@ -18,7 +18,10 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"sort"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -67,6 +70,19 @@ func (r *ApplicationReconciler) findApplicationsForSecret(ctx context.Context, s
 						},
 					}
 					reconcileList = append(reconcileList, req)
+				}
+			}
+		}
+		if len(value.Spec.EnvSecretRefs) != 0 {
+			for _,valueRef := range value.Spec.EnvSecretRefs{
+				if valueRef == secret.GetName() && value.Namespace == secret.GetNamespace() {
+					req := reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:	   value.Name,
+							Namespace: value.Namespace,
+						},
+					}
+					reconcileList = append(reconcileList,req)
 				}
 			}
 		}
@@ -214,7 +230,6 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if apierrors.IsNotFound(err) {
 		return ctrl.Result{}, nil
 	}
-
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -224,56 +239,51 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	var envFrom []corev1.EnvFromSource
+	var resourceVersions []string
 
 	if len(app.Spec.DatabaseRef) != 0 {
-		// Check for what Database is referenced
 		var secretRef []string
-		// secretRef := fmt.Sprintf("%s-credentials", *app.Spec.DatabaseRef)
 		for _, value := range app.Spec.DatabaseRef {
-			valueTransformer := fmt.Sprintf("%s-credentials", value)
-			secretRef = append(secretRef, valueTransformer)
+			secretRef = append(secretRef, fmt.Sprintf("%s-credentials", value))
 		}
-		secretObj := &corev1.Secret{}
 		for _, value := range secretRef {
+			secretObj := &corev1.Secret{}
 			err := r.Get(ctx, types.NamespacedName{Name: value, Namespace: app.Namespace}, secretObj)
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
 			if err == nil {
-				envFromSource := &corev1.EnvFromSource{
+				envFrom = append(envFrom, corev1.EnvFromSource{
 					SecretRef: &corev1.SecretEnvSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: value,
-						},
+						LocalObjectReference: corev1.LocalObjectReference{Name: value},
 					},
-				}
-				envFrom = append(envFrom, *envFromSource)
+				})
+				resourceVersions = append(resourceVersions, secretObj.ResourceVersion)
 			}
 		}
 	}
+
 	if len(app.Spec.EnvSecretRefs) != 0 {
-		var envSecretRefs []string
-		for _,value := range app.Spec.EnvSecretRefs {
-			envSecretRefs = append(envSecretRefs,value)
-		}
-		envSecretObj := &corev1.Secret{}
-		for _,value := range envSecretRefs{
-			err := r.Get(ctx,types.NamespacedName{Name: value,Namespace: app.Namespace},envSecretObj)
-			if err != nil && !apierrors.IsNotFound(err){
-				return ctrl.Result{},err
+		for _, value := range app.Spec.EnvSecretRefs {
+			envSecretObj := &corev1.Secret{}
+			err := r.Get(ctx, types.NamespacedName{Name: value, Namespace: app.Namespace}, envSecretObj)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
 			}
 			if err == nil {
-				envFromSource := &corev1.EnvFromSource{
+				envFrom = append(envFrom, corev1.EnvFromSource{
 					SecretRef: &corev1.SecretEnvSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: value,
-						},
+						LocalObjectReference: corev1.LocalObjectReference{Name: value},
 					},
-				}
-				envFrom = append(envFrom, *envFromSource)
+				})
+				resourceVersions = append(resourceVersions, envSecretObj.ResourceVersion)
 			}
 		}
 	}
+
+	// เรียงก่อน hash กัน order สลับแล้วได้ checksum ไม่เหมือนเดิมทั้งที่เนื้อหาเดิม
+	sort.Strings(resourceVersions)
+	checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(resourceVersions, "-"))))
 
 	secretName := "ghcr-secret"
 	if app.Spec.ImagePullSecret != nil {
@@ -296,6 +306,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
+					Annotations: map[string]string{
+						"checksum/secrets": checksum,
+					},
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -303,17 +316,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 							Name:  "api",
 							Image: app.Spec.Image,
 							Ports: []corev1.ContainerPort{
-								{
-									ContainerPort: app.Spec.Port,
-								},
+								{ContainerPort: app.Spec.Port},
 							},
 							EnvFrom: envFrom,
 						},
 					},
 					ImagePullSecrets: []corev1.LocalObjectReference{
-						{
-							Name: secretName,
-						},
+						{Name: secretName},
 					},
 				},
 			},

@@ -10,3 +10,5 @@ spec:
     - postgres-test
     - redis-test
   domain: order-system-api.phumitada.com
+  envSecretRefs: 
+  - order-system-api-env
